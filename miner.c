@@ -11,6 +11,7 @@
 #include <pthread.h>
 #include <semaphore.h>
 #include <unistd.h>
+#include <signal.h>
 #include <sys/mman.h>
 #include "miner.h"
 #include "pow.h"
@@ -41,8 +42,7 @@
 /*****VARIABLES GLOBALES*****/
 // Si se ha encontrado el número a buscar en la función hardwork()
 int FOUND = NO;
-// Posición del número encontrado en hardwork()
-int POSITION;
+Block *block;
 
 void *hardwork(void *param)
 {
@@ -54,14 +54,20 @@ void *hardwork(void *param)
     for (i = ((int *)param)[MIN]; i < ((int *)param)[MAX] && FOUND == NO; i++)
     {
         res = pow_hash(i);
+        if(FOUND == YES) return NULL;
         if (res == ((int *)param)[NUM])
         {
             // printf("Se ha encontrado el numero %d\n", res);
-            POSITION = i;
+            block->target = i;
             FOUND = YES;
+            return NULL;
         }
     }
     return NULL;
+}
+
+void voting(int sig){
+    
 }
 
 int minero(int rounds, int n_threads, int **fd, int fd_shm)
@@ -75,7 +81,7 @@ int minero(int rounds, int n_threads, int **fd, int fd_shm)
     char result[RES_SIZE + 1];
     size_t nbytes;
     pthread_t threads[n_threads];
-    Block *block;
+    struct sigaction act_usr2;
 
     // Comprobación de errores
     if ( rounds <= 0 || n_threads <= 0)
@@ -92,19 +98,26 @@ int minero(int rounds, int n_threads, int **fd, int fd_shm)
     {
         return EXIT_SUCCESS;
     }
+    //EMPIEZA AQUI
+    
+    act_usr2.sa_handler = voting;
+    sigemptyset(&(act_usr2.sa_mask));
+    act_usr2.sa_flags = 0;
+    if (sigaction(SIGUSR2, &act_usr2, NULL) < 0)        //captura de señal SIGUSR2
+    {
+        perror("sigaction");
+        exit(EXIT_FAILURE);
+    }
+    
+    //ACABA AQUI
 
     // Bucle donde nos aseguramos si se ha encontrado el número y hacemos que haga todas las rondas
     for (j = 0; j < rounds; j++)
     {
         sem_wait(&(block->sem_waiting));
         // Inicializamos por primera vez param asignando el target inicial
-        if (j == 0)
-            for (i = 0; i < n_threads; i++)
-                param[i][NUM] = block->target;
-        // Para las demas rondas ponemos el target en la posicion de la anterior ronda
-        else
-            for (i = 0; i < n_threads; i++)
-                param[i][NUM] = POSITION;
+        for (i = 0; i < n_threads; i++)
+            param[i][NUM] = block->target;
 
         // Por cada hilo le asignamos el intervalo de numeros que tienen que buscar y lo
         // creamos llamando a la funcion hardwork() con los parametros correspondientes

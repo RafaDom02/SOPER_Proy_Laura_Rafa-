@@ -30,7 +30,7 @@ typedef struct {
     int id;
     long int target;            //Numero a encontrar
     long int solution;          //Posicion del numero encontrado
-    int pidw;
+    int pidwinner;
     Wallet wallets[MAX_MINERS];
     int tvotes;
     int pvotes;

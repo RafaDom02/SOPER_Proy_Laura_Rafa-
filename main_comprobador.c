@@ -11,6 +11,7 @@
 //////////////////////////////////////// BIBLIOTECAS /////////////////////////////////////////////////////////////////////
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <sys/mman.h> //Biblioteca para mmap()
 #include <sys/types.h>
 #include <sys/stat.h>

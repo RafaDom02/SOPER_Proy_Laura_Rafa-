@@ -26,20 +26,18 @@
 
 void block_init(Block **block)
 {
-    (*block)->id = 0;
-    (*block)->target = 0;
-    if (sem_init(&(*block)->sem_miners, 1, MAX_MINERS) == -1)
-    {
-        perror("sem_init");
-        exit(EXIT_FAILURE);
-    }
-
     if (sem_init(&(*block)->sem_waiting, 1, 0) == -1)
     {
         perror("sem_init");
         exit(EXIT_FAILURE);
     }
-    
+    if (sem_init(&(*block)->sem_miners, 1, MAX_MINERS) == -1)
+    {
+        perror("sem_init");
+        exit(EXIT_FAILURE);
+    }
+    (*block)->id = 0;
+    (*block)->target = 0;
 }
 
 int main(int argc, char *argv[])
