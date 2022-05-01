@@ -9,6 +9,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <pthread.h>
+#include <semaphore.h>
+#include <unistd.h>
+#include <sys/mman.h>
 #include "miner.h"
 #include "pow.h"
 
@@ -61,11 +64,8 @@ void *hardwork(void *param)
     return NULL;
 }
 
-
-
-int minero(int target, int rounds, int n_threads, int **fd)
+int minero(int rounds, int n_threads, int **fd, int fd_shm)
 {
-    //1: los hilos tienen que buscar la POW
     int numperthr = POW_LIMIT / n_threads;
     int i;
     int j;
@@ -73,20 +73,34 @@ int minero(int target, int rounds, int n_threads, int **fd)
     int param[n_threads][ARGS];
     char str[STR_SIZE + 1];
     char result[RES_SIZE + 1];
-    ssize_t nbytes;
+    size_t nbytes;
     pthread_t threads[n_threads];
+    Block *block;
 
     // Comprobación de errores
-    if (target < 0 || target > POW_LIMIT || rounds <= 0 || n_threads <= 0)
+    if ( rounds <= 0 || n_threads <= 0)
         return EXIT_FAILURE;
+    // Acceder a la memoria compartida
+    block = (Block *)mmap(NULL, sizeof(block), PROT_READ, MAP_SHARED, fd_shm, 0);
+    if (block == MAP_FAILED)
+    {
+        perror("mmap");
+        exit(EXIT_FAILURE);
+    }
+    // Si el sistema esta lleno, salimos
+    if (sem_trywait(&(block->sem_miners)) == -1)
+    {
+        return EXIT_SUCCESS;
+    }
 
     // Bucle donde nos aseguramos si se ha encontrado el número y hacemos que haga todas las rondas
     for (j = 0; j < rounds; j++)
     {
+        sem_wait(&(block->sem_waiting));
         // Inicializamos por primera vez param asignando el target inicial
         if (j == 0)
             for (i = 0; i < n_threads; i++)
-                param[i][NUM] = target;
+                param[i][NUM] = block->target;
         // Para las demas rondas ponemos el target en la posicion de la anterior ronda
         else
             for (i = 0; i < n_threads; i++)
@@ -104,6 +118,7 @@ int minero(int target, int rounds, int n_threads, int **fd)
                 if (error != 0)
                 {
                     fprintf(stderr, "pthread_create: %s\n", strerror(error));
+                    sem_post(&(block->sem_miners));
                     return EXIT_FAILURE;
                 }
             }
@@ -114,6 +129,7 @@ int minero(int target, int rounds, int n_threads, int **fd)
                 if (error != 0)
                 {
                     fprintf(stderr, "pthread_create: %s\n", strerror(error));
+                    sem_post(&(block->sem_miners));
                     return EXIT_FAILURE;
                 }
             }
@@ -125,6 +141,7 @@ int minero(int target, int rounds, int n_threads, int **fd)
             if (error != 0)
             {
                 fprintf(stderr, "pthread_join: %s\n", strerror(error));
+                sem_post(&(block->sem_miners));
                 return EXIT_FAILURE;
             }
         }
@@ -139,6 +156,7 @@ int minero(int target, int rounds, int n_threads, int **fd)
             if (nbytes == -1)
             {
                 printf("Error en el write.\n");
+                sem_post(&(block->sem_miners));
                 return EXIT_FAILURE;
             }
             // Pasamos como segundo valor la posición del número a buscar
@@ -147,6 +165,7 @@ int minero(int target, int rounds, int n_threads, int **fd)
             if (nbytes == -1)
             {
                 printf("Error en el write.\n");
+                sem_post(&(block->sem_miners));
                 return EXIT_FAILURE;
             }
 
@@ -155,6 +174,7 @@ int minero(int target, int rounds, int n_threads, int **fd)
             if (nbytes == -1)
             {
                 printf("Error en el read.\n");
+                sem_post(&(block->sem_miners));
                 return EXIT_FAILURE;
             }
             if (strcmp(result, NEGATIVE) == 0)
@@ -167,25 +187,14 @@ int minero(int target, int rounds, int n_threads, int **fd)
                 {
                     printf("Error en el write.\n");
                 }
+                sem_post(&(block->sem_miners));
                 return EXIT_FAILURE;
             }
-            
 
             FOUND = NO;
         }
     }
 
-    return EXIT_SUCCESS;
-
-    //2: Si un hilo la encuentra, manda a los demas
-    //  a validar su solucion mediante una votacion
-
-
-
-    //3: Validacion correcta = moneda y enviar el bloque
-    //  al monitor (tiene que estar activo) mediante una 
-    //  cola de mensajes
-
-    
+    sem_post(&(block->sem_miners));
     return EXIT_SUCCESS;
 }

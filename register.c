@@ -10,5 +10,5 @@
 #include "register.h"
 
 int registrador(int **fd){
-
+    dprintf(fd[], "");
 }
