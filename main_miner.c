@@ -24,8 +24,9 @@
 
 #define SHM_NAME "/shm_minero_registrador"
 
-void block_init(Block **block)
+void block_init(Block **block, pid_t grp)
 {
+    int i;
     if (sem_init(&(*block)->sem_waiting, 1, 0) == -1)
     {
         perror("sem_init");
@@ -38,6 +39,10 @@ void block_init(Block **block)
     }
     (*block)->id = 0;
     (*block)->target = 0;
+    for(i=0; i<MAX_MINERS; i++){
+        (*block)->wallets[i] = NULL;
+    }
+    (*block)->group = grp;
 }
 
 int main(int argc, char *argv[])
@@ -47,6 +52,8 @@ int main(int argc, char *argv[])
     int fd_shm;
     Block *block = NULL;
     sem_t sem_miners;
+    int group;
+    int ppid;
 
     if (argc < 3)
     {
@@ -94,6 +101,7 @@ int main(int argc, char *argv[])
         }
         else // PRIMER MINERO
         {
+            setpgid(0, 0);
             if (ftruncate(fd_shm, sizeof(block)) == -1)
                 return EXIT_FAILURE;
             block = (Block *)mmap(NULL, sizeof(block), PROT_READ, MAP_SHARED, fd_shm, 0);
@@ -102,7 +110,7 @@ int main(int argc, char *argv[])
                 perror("mmap");
                 exit(EXIT_FAILURE);
             }
-            block_init(&block);
+            block_init(&block, stpgrp());
             munmap(block, sizeof(block));
             if (!miner(atoi(argv[1]), atoi(argv[2]), fd, fd_shm))
                 return EXIT_FAILURE;

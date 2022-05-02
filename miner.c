@@ -43,6 +43,9 @@
 // Si se ha encontrado el número a buscar en la función hardwork()
 int FOUND = NO;
 Block *block;
+int pos;
+int n_th;
+pthread_t *threads;
 
 void *hardwork(void *param)
 {
@@ -67,7 +70,10 @@ void *hardwork(void *param)
 }
 
 void voting(int sig){
-    
+    int i;
+    for(i = 0; i<n_th; i++) pthread_join(threads[i], NULL);
+
+    //TO-DO proceso de votacion
 }
 
 int minero(int rounds, int n_threads, int **fd, int fd_shm)
@@ -75,17 +81,25 @@ int minero(int rounds, int n_threads, int **fd, int fd_shm)
     int numperthr = POW_LIMIT / n_threads;
     int i;
     int j;
-    int error;
+    int error = YES;
     int param[n_threads][ARGS];
     char str[STR_SIZE + 1];
     char result[RES_SIZE + 1];
     size_t nbytes;
-    pthread_t threads[n_threads];
+    //pthread_t threads[n_threads];
     struct sigaction act_usr2;
+    Wallet wallet;
 
     // Comprobación de errores
     if ( rounds <= 0 || n_threads <= 0)
         return EXIT_FAILURE;
+
+    //
+    threads = (pthread_t*)malloc(n_threads*sizeof(threads));
+    if(!threads) return EXIT_FAILURE;
+
+    n_th = n_threads;
+
     // Acceder a la memoria compartida
     block = (Block *)mmap(NULL, sizeof(block), PROT_READ, MAP_SHARED, fd_shm, 0);
     if (block == MAP_FAILED)
@@ -93,23 +107,41 @@ int minero(int rounds, int n_threads, int **fd, int fd_shm)
         perror("mmap");
         exit(EXIT_FAILURE);
     }
+
     // Si el sistema esta lleno, salimos
     if (sem_trywait(&(block->sem_miners)) == -1)
     {
+        free(threads);
         return EXIT_SUCCESS;
     }
-    //EMPIEZA AQUI
+
+    wallet.coins = 0;
+    wallet.pid = getpid();
+
+    for(i = 0; i<MAX_MINERS; i++){
+        if(block->wallets[i] == NULL){
+            error = NO;
+            pos = i;
+            block->wallets[i] = &wallet;
+            break;
+        }
+    }
+    if(error == YES) return EXIT_SUCCESS;
+
+    if(block->group != getpgrp()) setpgid(0, block->group); //TO-DO hay que hacer errno
     
+    //Creamos el handler para que se recoja la señal SIGUSR2
     act_usr2.sa_handler = voting;
     sigemptyset(&(act_usr2.sa_mask));
     act_usr2.sa_flags = 0;
     if (sigaction(SIGUSR2, &act_usr2, NULL) < 0)        //captura de señal SIGUSR2
     {
         perror("sigaction");
+        free(threads);
         exit(EXIT_FAILURE);
     }
     
-    //ACABA AQUI
+    
 
     // Bucle donde nos aseguramos si se ha encontrado el número y hacemos que haga todas las rondas
     for (j = 0; j < rounds; j++)
@@ -128,10 +160,12 @@ int minero(int rounds, int n_threads, int **fd, int fd_shm)
             {
                 param[i][MAX] = POW_LIMIT;
                 error = pthread_create(&threads[i], NULL, hardwork, param[i]);
+
                 if (error != 0)
                 {
                     fprintf(stderr, "pthread_create: %s\n", strerror(error));
                     sem_post(&(block->sem_miners));
+                    free(threads);
                     return EXIT_FAILURE;
                 }
             }
@@ -143,6 +177,7 @@ int minero(int rounds, int n_threads, int **fd, int fd_shm)
                 {
                     fprintf(stderr, "pthread_create: %s\n", strerror(error));
                     sem_post(&(block->sem_miners));
+                    free(threads);
                     return EXIT_FAILURE;
                 }
             }
@@ -155,6 +190,7 @@ int minero(int rounds, int n_threads, int **fd, int fd_shm)
             {
                 fprintf(stderr, "pthread_join: %s\n", strerror(error));
                 sem_post(&(block->sem_miners));
+                free(threads);
                 return EXIT_FAILURE;
             }
         }
@@ -170,6 +206,7 @@ int minero(int rounds, int n_threads, int **fd, int fd_shm)
             {
                 printf("Error en el write.\n");
                 sem_post(&(block->sem_miners));
+                free(threads);
                 return EXIT_FAILURE;
             }
             // Pasamos como segundo valor la posición del número a buscar
@@ -179,6 +216,7 @@ int minero(int rounds, int n_threads, int **fd, int fd_shm)
             {
                 printf("Error en el write.\n");
                 sem_post(&(block->sem_miners));
+                free(threads);
                 return EXIT_FAILURE;
             }
 
@@ -188,6 +226,7 @@ int minero(int rounds, int n_threads, int **fd, int fd_shm)
             {
                 printf("Error en el read.\n");
                 sem_post(&(block->sem_miners));
+                free(threads);
                 return EXIT_FAILURE;
             }
             if (strcmp(result, NEGATIVE) == 0)
@@ -201,6 +240,7 @@ int minero(int rounds, int n_threads, int **fd, int fd_shm)
                     printf("Error en el write.\n");
                 }
                 sem_post(&(block->sem_miners));
+                free(threads);
                 return EXIT_FAILURE;
             }
 
@@ -209,5 +249,6 @@ int minero(int rounds, int n_threads, int **fd, int fd_shm)
     }
 
     sem_post(&(block->sem_miners));
+    free(threads);
     return EXIT_SUCCESS;
 }

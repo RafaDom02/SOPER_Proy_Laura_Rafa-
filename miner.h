@@ -28,14 +28,16 @@ typedef struct {
 //Bloque Memoria compartida MINEROS
 typedef struct {
     int id;
+    pid_t group;
     long int target;            //Numero a encontrar
     long int solution;          //Posicion del numero encontrado
     int pidwinner;
-    Wallet wallets[MAX_MINERS];
+    Wallet *wallets[MAX_MINERS];
     int tvotes;
     int pvotes;
     sem_t sem_miners;           //Semaforo para limitar mineros
     sem_t sem_waiting;          //Semaforos que esperan a la señal SIGUSR1
+    sem_t mutex;
 } Block;
 
 //
