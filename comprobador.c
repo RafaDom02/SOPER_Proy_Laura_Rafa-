@@ -1,6 +1,5 @@
 /**
- * @brief Comprobador: obtiene un bloque de minero, comprueba el resultado
- *        y este resultado se lo pasa a monitor
+ * @brief Comprobador: 
  *  
  * @author Rafael Domínguez Saez rafael.dominguez@estudiante.uam.es
  * @author Laura María García Suárez lauramaria.garcias@estudiante.uam.es
@@ -18,47 +17,11 @@
 
 #include "comprobador.h"    //Biblioteca de comprobador
 #include "pow.h"            //Biblioteca para hash_pow()
-#include "miner.h"
 
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////// COMPROBADOR /////////////////////////////////////////////////////////////////////
-/**
- * @brief Inicializamos los semaforos sem_empty, sem_fill y mutex
- * 
- * @param sem_empty Semaphore
- * @param sem_fill Semaphore
- * @param mutex Semaphore
- * @return EXIT_FAILURE or EXIT_SUCCCESS
- */
-int crearSemaforos(sem_t *sem_empty, sem_t *sem_fill, sem_t *mutex)
-{
-    // Creacion del primer semaforo
-    if (sem_init(sem_empty, 1, MAX_BUFFER) == -1)
-    {
-        perror("sem_init");
-        exit(EXIT_FAILURE);
-    }
 
-    // Creacion del segundo semaforo
-    if (sem_init(sem_fill, 1, 0) == -1)
-    {
-        sem_destroy(sem_empty);
-        perror("sem_init");
-        exit(EXIT_FAILURE);
-    }
-
-    // Creacion del mutex
-    if (sem_init(mutex, 1, 1) == -1)
-    {
-        sem_destroy(sem_empty);
-        sem_destroy(sem_fill);
-        perror("sem_init");
-        exit(EXIT_FAILURE);
-    }
-
-    return EXIT_SUCCESS;
-}
 
 /**
  * @brief Obtenemos un bloque de minero, comprobamos si ese correcto y pasamos este resultado a monitor
@@ -67,14 +30,12 @@ int crearSemaforos(sem_t *sem_empty, sem_t *sem_fill, sem_t *mutex)
  * @param fd Fichero donde se encuentra la memoria compartida
  * @return EXIT_FAILURE or EXIT_SUCCESS
  */
-int comprobador(int lag, int fd)
+int comprobador(int fd)
 {
     SHM_info shminfo;
     mqd_t mq;
     struct timespec ts;
     int sval;
-    ts.tv_sec = 0;
-    ts.tv_nsec = lag * 1000000; // lag para la espera activa
 
     mq = mq_open(MQ_NAME, O_CREAT | O_RDONLY | O_NONBLOCK, S_IRUSR | S_IWUSR, &attributes); //Abrimos la cola de mensajes
     if(mq == (mqd_t)-1) {

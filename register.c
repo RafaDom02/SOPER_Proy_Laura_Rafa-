@@ -11,6 +11,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <string.h>
 #include <errno.h>
 #include <unistd.h>
 #include "register.h"
@@ -18,27 +19,31 @@
 
 #define SIZE_WORD 32
 
-int registrador(int *fd, int rounds)
+int registrador(int fd, int rounds)
 {
     int i;
     int j;
-    int nbytes;
-    SHM_info *shminfo = NULL;
+    ssize_t nbytes;
     char nombreArchivo[SIZE_WORD]; 
+    char test[1];
     int f;
 
     for (i = 0; i < rounds; i++)
     {
         //Comprobamos que el padre consigue el bloque
+        printf("TETDETYYWGFYWEGYEVW\n");
         do
         {
-            nbytes = read(fd[0], shminfo, sizeof(shminfo));
+            nbytes = read(fd, test, 2);
             if (nbytes == -1)
             {
                 printf("Error en el read.\n");
                 return EXIT_FAILURE;
             }
+            printf("777777777 %d ||| %d\n", getppid());
+            i++;
         } while (shminfo->newblock.pidwinner != getppid());
+        sprintf(nombreArchivo, "%d", (int)getppid());
         //Aqui ya sabemos que el padre es el ganador
         f = open(nombreArchivo, O_WRONLY | O_CREAT);
         if(f == -1){
@@ -47,8 +52,9 @@ int registrador(int *fd, int rounds)
             close(fd);
             exit(EXIT_FAILURE);
         }
+        printf("---------------------->%s\n", test);
 
-        dprintf(f, "Id:             %d\n", shminfo->newblock.id);
+        /*dprintf(f, "Id:             %d\n", shminfo->newblock.id);
         dprintf(f, "Winner:         %d\n", shminfo->newblock.pidwinner);
         dprintf(f, "Target:         %d\n", shminfo->newblock.target);
         if((shminfo->newblock.tvotes / 2) < shminfo->newblock.pvotes){
@@ -60,12 +66,19 @@ int registrador(int *fd, int rounds)
         dprintf(f, "Wallets:        ");
         for(j = 0; j < MAX_MINERS; j++){
             dprintf(f, "%d:%d ", shminfo->newblock.wallets[j]->pid, shminfo->newblock.wallets[j]->coins);
+        }*/
+
+        
+        for(j = 0; j < MAX_MINERS; j++){
+            if(shminfo->newblock.wallets[j] != NULL){
+                printf("%d:%d ", shminfo->newblock.wallets[j]->pid, shminfo->newblock.wallets[j]->coins);
+            }
         }
         
         close(f);
     }
 
     
-    close(fd[0]);
+    close(fd);
     return EXIT_SUCCESS;
 }

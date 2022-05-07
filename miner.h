@@ -11,7 +11,7 @@
 
 #include <semaphore.h>
 
-int miner(int rounds, int n_threads, int *fd, int fd_shm);
+int miner(int rounds, int n_threads, int fd, int fd_shm);
 
 #define MAX_MINERS 100
 

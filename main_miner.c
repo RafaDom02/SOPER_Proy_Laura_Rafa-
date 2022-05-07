@@ -26,37 +26,40 @@
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /////////////////////////////////// MINERO/REGISTRADOR ////////////////////////////////////////////////////////////////////
 
-void shm_info_init(SHM_info **shminfo)
+void shm_info_init(SHM_info *shminfo)
 {
+    printf("aaaaa 1\n");
     int i;
-    if(sem_init(&(*shminfo)->mutex, 1, 0) == -1)
+    if(sem_init(&(shminfo->mutex), 1, 1) == -1)
     {
         perror("sem_init");
         exit(EXIT_FAILURE);
     }
-    sem_wait(&(*shminfo)->mutex);
-    if (sem_init(&(*shminfo)->sem_waiting, 1, 0) == -1)
+    printf("aaaaa 2\n");
+    sem_wait(&shminfo->mutex);
+    printf("aaaaa 3\n");
+    if (sem_init(&(shminfo->sem_waiting), 1, 0) == -1)
     {
         perror("sem_init");
         exit(EXIT_FAILURE);
     }
-    if (sem_init(&(*shminfo)->sem_miners, 1, MAX_MINERS) == -1)
+    if (sem_init(&(shminfo->sem_miners), 1, MAX_MINERS) == -1)
     {
         perror("sem_init");
         exit(EXIT_FAILURE);
     }
-    (*shminfo)->minersvoting = 0;
-    (*shminfo)->newblock.id = 0;
-    (*shminfo)->newblock.target = 0;
-    (*shminfo)->newblock.solution = -1;
-    (*shminfo)->prevblock.pidwinner = getpid();
+    shminfo->minersvoting = 0;
+    shminfo->newblock.id = 0;
+    shminfo->newblock.target = 0;
+    shminfo->newblock.solution = -1;
+    shminfo->prevblock.pidwinner = getpid();
     for(i=0; i<MAX_MINERS; i++){
-        (*shminfo)->newblock.wallets[i] = NULL;
-        (*shminfo)->pids_esperando[i] = 0;
-        (*shminfo)->pids_minando[i] = 0;
-        (*shminfo)->votes[i] = 0;
+        shminfo->newblock.wallets[i] = NULL;
+        shminfo->pids_esperando[i] = 0;
+        shminfo->pids_minando[i] = 0;
+        shminfo->votes[i] = 0;
     }
-    sem_post(&(*shminfo)->mutex);
+    sem_post(&shminfo->mutex);
 }
 
 int main(int argc, char *argv[])
@@ -98,35 +101,36 @@ int main(int argc, char *argv[])
                 }
                 else
                 {
-                    if (!miner(atoi(argv[1]), atoi(argv[2]), fd, fd_shm))
+                    if (!miner(atoi(argv[1]), atoi(argv[2]), fd[1], fd_shm))
                         return EXIT_FAILURE;
                 }
             }
         }
         else // PRIMER MINERO
         {
-            setpgid(0, 0); //Hacemos un grupo de procesos para que al enviar las señales solo se lo envie a los procesos del mismo grupo
             if (ftruncate(fd_shm, sizeof(shminfo)) == -1)
                 return EXIT_FAILURE;
-            shminfo = (SHM_info *)mmap(NULL, sizeof(shminfo), PROT_READ, MAP_SHARED, fd_shm, 0);
+            printf("TEST 1\n");
+            shminfo = (SHM_info *)mmap(NULL, sizeof(shminfo), PROT_READ | PROT_WRITE , MAP_SHARED, fd_shm, 0);
             if (shminfo == MAP_FAILED)
             {
                 perror("mmap");
                 exit(EXIT_FAILURE);
             }
-            shm_info_init(&shminfo);
+            printf("TEST 2\n");
+            shm_info_init(shminfo);
+            printf("TEST 3\n");
             munmap(shminfo, sizeof(shminfo));
-            if (!miner(atoi(argv[1]), atoi(argv[2]), fd, fd_shm))
+            printf("TEST 4\n");
+            if (!miner(atoi(argv[1]), atoi(argv[2]), fd[1], fd_shm))
                 return EXIT_FAILURE;
-            close(fd[1]);
         }
     }
     else if (pid == 0) // registrador
     {
         close(fd[1]); // Cerramos de la tuberia la escritura.
-        if (!registrador(fd, atoi(argv[1])))
+        if (!registrador(fd[0], atoi(argv[1])))
             return EXIT_FAILURE;
-        close(fd[0]);
     }
     else
     {
