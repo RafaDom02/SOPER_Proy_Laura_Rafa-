@@ -19,8 +19,6 @@
 #include <errno.h>
 #include "comprobador.h"
 
-#define SHM_NAME "/shm_comprobador_monitor"
-
 int main(int argc, char *argv[])
 {
     int pid;
@@ -46,14 +44,12 @@ int main(int argc, char *argv[])
                     exit(EXIT_FAILURE);
                 }
                 else{
-                    if(!)
-                        return EXIT_FAILURE;
+                    return EXIT_FAILURE;
                 }
             }
         }
         else
         {
-
             if (!comprobador(atoi(argv[1]), atoi(argv[2])))
                 return EXIT_FAILURE;
         }

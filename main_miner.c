@@ -12,7 +12,7 @@
 #include <stdio.h>  //Biblioteca base
 #include <stdlib.h> //Biblioteca para funciones adicionales
 #include <time.h>   //Biblioteca para nanosleep()
-#include <unistd.h>
+#include <unistd.h> 
 #include <sys/mman.h> //Biblioteca para mmap()
 #include <sys/types.h>
 #include <semaphore.h>
@@ -22,35 +22,49 @@
 #include "register.h"
 #include "miner.h"
 
-#define SHM_NAME "/shm_minero_registrador"
 
-void block_init(Block **block, pid_t grp)
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////// MINERO/REGISTRADOR ////////////////////////////////////////////////////////////////////
+
+void shm_info_init(SHM_info **shminfo)
 {
     int i;
-    if (sem_init(&(*block)->sem_waiting, 1, 0) == -1)
+    if(sem_init(&(*shminfo)->mutex, 1, 0) == -1)
     {
         perror("sem_init");
         exit(EXIT_FAILURE);
     }
-    if (sem_init(&(*block)->sem_miners, 1, MAX_MINERS) == -1)
+    sem_wait(&(*shminfo)->mutex);
+    if (sem_init(&(*shminfo)->sem_waiting, 1, 0) == -1)
     {
         perror("sem_init");
         exit(EXIT_FAILURE);
     }
-    (*block)->id = 0;
-    (*block)->target = 0;
+    if (sem_init(&(*shminfo)->sem_miners, 1, MAX_MINERS) == -1)
+    {
+        perror("sem_init");
+        exit(EXIT_FAILURE);
+    }
+    (*shminfo)->minersvoting = 0;
+    (*shminfo)->newblock.id = 0;
+    (*shminfo)->newblock.target = 0;
+    (*shminfo)->newblock.solution = -1;
+    (*shminfo)->prevblock.pidwinner = getpid();
     for(i=0; i<MAX_MINERS; i++){
-        (*block)->wallets[i] = NULL;
+        (*shminfo)->newblock.wallets[i] = NULL;
+        (*shminfo)->pids_esperando[i] = 0;
+        (*shminfo)->pids_minando[i] = 0;
+        (*shminfo)->votes[i] = 0;
     }
-    (*block)->group = grp;
+    sem_post(&(*shminfo)->mutex);
 }
 
 int main(int argc, char *argv[])
 {
     int pid;
-    int *fd[2];
+    int fd[2];
     int fd_shm;
-    Block *block = NULL;
+    SHM_info *shminfo = NULL;
     sem_t sem_miners;
     int group;
     int ppid;
@@ -61,18 +75,9 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }
 
-    // Alocamos memoria para las tuberías
-    fd[0] = (int *)malloc(2 * sizeof(int));
-    fd[1] = (int *)malloc(2 * sizeof(int));
-
-    if (pipe(fd[0]) == -1) // Tuberia direccion minero-registrador
+    if (pipe(fd) == -1) // Tuberia direccion minero-registrador
     {
         printf("Error en la creación de la primera tubería.\n");
-        return EXIT_FAILURE;
-    }
-    if (pipe(fd[1]) == -1) // Tuberia direccion registrador-minero
-    {
-        printf("Error en la creación de la segunda tubería.\n");
         return EXIT_FAILURE;
     }
 
@@ -80,14 +85,13 @@ int main(int argc, char *argv[])
 
     if (pid > 0) // minero
     {
-        close(fd[0][0]); // Cerramos de la tuberia 1 la lectura.
-        close(fd[1][1]); // Cerramos de la tuberia 2 la escritura.
-        fd_shm = shm_open(SHM_NAME, O_RDWR | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR);
+        close(fd[0]); // Cerramos de la tuberia la lectura.
+        fd_shm = shm_open(SHM_NAME, O_RDWR | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR); //Creamos la memoria compartida
         if (fd_shm == -1) // LOS DEMAS MINEROS
         {
-            if (errno == EEXIST)
+            if (errno == EEXIST) 
             {
-                if ((fd_shm = open(SHM_NAME, O_RDWR, 0)) == -1)
+                if ((fd_shm = open(SHM_NAME, O_RDWR, 0)) == -1) //Como existe, solo tenemos que abrir
                 {
                     perror("Error opening the shared memory segment");
                     exit(EXIT_FAILURE);
@@ -101,31 +105,33 @@ int main(int argc, char *argv[])
         }
         else // PRIMER MINERO
         {
-            setpgid(0, 0);
-            if (ftruncate(fd_shm, sizeof(block)) == -1)
+            setpgid(0, 0); //Hacemos un grupo de procesos para que al enviar las señales solo se lo envie a los procesos del mismo grupo
+            if (ftruncate(fd_shm, sizeof(shminfo)) == -1)
                 return EXIT_FAILURE;
-            block = (Block *)mmap(NULL, sizeof(block), PROT_READ, MAP_SHARED, fd_shm, 0);
-            if (block == MAP_FAILED)
+            shminfo = (SHM_info *)mmap(NULL, sizeof(shminfo), PROT_READ, MAP_SHARED, fd_shm, 0);
+            if (shminfo == MAP_FAILED)
             {
                 perror("mmap");
                 exit(EXIT_FAILURE);
             }
-            block_init(&block, stpgrp());
-            munmap(block, sizeof(block));
+            shm_info_init(&shminfo);
+            munmap(shminfo, sizeof(shminfo));
             if (!miner(atoi(argv[1]), atoi(argv[2]), fd, fd_shm))
                 return EXIT_FAILURE;
+            close(fd[1]);
         }
     }
     else if (pid == 0) // registrador
     {
-        close(fd[0][1]); // Cerramos de la tuberia 1 la escritura.
-        close(fd[1][0]); // Cerramos de la tuberia 2 la lectura.
-        if (!registrador(fd))
+        close(fd[1]); // Cerramos de la tuberia la escritura.
+        if (!registrador(fd, atoi(argv[1])))
             return EXIT_FAILURE;
+        close(fd[0]);
     }
     else
     {
-        return EXIT_FAILURE;
+        perror("fork");
+        exit(EXIT_FAILURE);
     }
 
     return EXIT_SUCCESS;
