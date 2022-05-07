@@ -11,11 +11,16 @@
 
 #include <semaphore.h>
 
-int miner(int rounds, int n_threads, int fd, int fd_shm);
-
 #define MAX_MINERS 100
+#define MAX_WORDS 350
+#define MAX_AUX 32
 
 #define SHM_NAME "/shm_minero"
+
+
+int miner(int rounds, int n_threads, int fd, int fd_shm);
+
+
 
 //Enumeracion boolean
 typedef enum {

@@ -26,8 +26,6 @@
 
 /*****CONSTANTES DE MAXIMO DE SEGUNDOS PARA COMPROBAR LOS MINEROS DE LA VOTACION*****/
 #define MAX_WAIT 5
-#define MAX_WORDS 100
-#define MAX_WORDS 32
 
 /*****VARIABLES GLOBALES*****/
 // Si se ha encontrado el número a buscar en la función hardwork()
@@ -209,7 +207,7 @@ int miner(int rounds, int n_threads, int fd, int fd_shm)
     int j;
     int k;
     int error;
-    char minerToRegister[MAX_WORDS];
+    char minerToRegister[MAX_WORDS] = "";
     char cadenaAux[MAX_AUX];
     int param[n_threads][ARGS];
     struct sigaction act_usr1;
@@ -409,23 +407,36 @@ int miner(int rounds, int n_threads, int fd, int fd_shm)
             }
             printf("PRUEBA 19\n");
 
-
-            sprintf(minerToRegister, "Id:             %d\n", shminfo->newblock.id)
-
-            sprintf(minerToRegister, "Winner:         %d\n", shminfo->newblock.pidwinner);
-            sprintf(minerToRegister, "Target:         %d\n", shminfo->newblock.target);
+            sprintf(cadenaAux, "Id:             %d\n", shminfo->newblock.id);
+            strcat(minerToRegister, cadenaAux);
+            sprintf(cadenaAux, "Winner:         %d\n", shminfo->newblock.pidwinner);
+            strcat(minerToRegister, cadenaAux);
+            sprintf(cadenaAux, "Target:         %d\n", shminfo->newblock.target);
+            strcat(minerToRegister, cadenaAux);
             if ((shminfo->newblock.tvotes / 2) < shminfo->newblock.pvotes)
             {
-                sprintf(minerToRegister, "Solution:       %d (validated) \n", shminfo->newblock.target);
+                sprintf(cadenaAux, "Solution:       %d (validated) \n", shminfo->newblock.target);
+                strcat(minerToRegister, cadenaAux);
             }
             else
             {
-                sprintf(minerToRegister, "Solution:       %d (rejected)\n", shminfo->newblock.target);
+                sprintf(cadenaAux, "Solution:       %d (rejected)\n", shminfo->newblock.target);
+                strcat(minerToRegister, cadenaAux);
             }
-            sprintf(minerToRegister, "Votes:          %d/%d\n", shminfo->newblock.pvotes, shminfo->newblock.tvotes);
-            sprintf(minerToRegister, "Wallets:        ");
+            sprintf(cadenaAux, "Votes:          %d/%d\n", shminfo->newblock.pvotes, shminfo->newblock.tvotes);
+            strcat(minerToRegister, cadenaAux);
+            sprintf(cadenaAux, "Wallets:        ");
+            strcat(minerToRegister, cadenaAux);
+            for (i = 0; i < MAX_MINERS; i++)
+            {
+                if (shminfo->newblock.wallets[j] != NULL)
+                {
+                    sprintf(cadenaAux, "%d:%d ", shminfo->newblock.wallets[j]->pid, shminfo->newblock.wallets[j]->coins);
+                    strcat(minerToRegister, cadenaAux);
+                }
+            }
 
-            if (write(fd_pipe, , ) == -1)
+            if (write(fd_pipe, minerToRegister, MAX_WORDS+1) == -1)
             {
                 printf("test");
                 returnAux();
