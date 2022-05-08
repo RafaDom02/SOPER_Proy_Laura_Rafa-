@@ -13,13 +13,17 @@
  #include "miner.h"
 
  #define SHM_MTC_NAME "/shm_comprobador_monitor"
- #define MQ_NAME "/mq_comprobador_monitor"
 
- int comprobador(int fd);
+typedef struct
+{
+    Block *shminfo;
+    int correcto;
+    int finalizando;
+    sem_t mutex;
+    sem_t sem_fill;
+    sem_t sem_empty;
+}SHM_mtc;
 
-typedef struct{
+int comprobador(int fd_shm);
 
-} 
-
-
- #endif 
+#endif 

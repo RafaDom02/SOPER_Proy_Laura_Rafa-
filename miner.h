@@ -12,8 +12,8 @@
 #include <semaphore.h>
 
 #define MAX_MINERS 100
-#define MAX_WORDS 400
-#define MAX_AUX 32
+#define MAX_WORDS 1000
+#define MAX_AUX 64
 
 #define SHM_NAME "/shm_minero"
 
@@ -36,6 +36,7 @@ typedef struct {
 
 //Bloque Memoria compartida MINEROS
 typedef struct {
+    int flag;
     int id;                             //Id del bloque
     long int target;                    //Numero a encontrar
     long int solution;                  //Posicion del numero encontrado
@@ -43,13 +44,12 @@ typedef struct {
     Wallet *wallets[MAX_MINERS];        //Carteras de los procesos
     int tvotes;                         //Todos los votos
     int pvotes;                         //Votos positivos
-    Boolean flag;                       //Bandera
 } Block;
 
-//
+//Bloque Memoria compartida COMPROBADOR-MONITOR
 typedef struct
 {
-    int minersvoting;
+    int minersvoting;                   //Mineros que estan votando
     pid_t pids_esperando[MAX_MINERS];   //Procesos que estan esperando
     pid_t pids_minando[MAX_MINERS];     //Procesos que estan minando
     int votes[MAX_MINERS];              //Votos de los mineros
@@ -60,15 +60,5 @@ typedef struct
     sem_t sem_waiting;                  //Semaforos que esperan a la señal SIGUSR1
     sem_t mutex;
 }SHM_info;
-
-typedef struct
-{
-    SHM_info *shminfo;
-    int correcto;
-    int finalizando;
-    sem_t mutex;
-    sem_t sem_fill;
-    sem_t sem_empty;
-}SHM_mtc;
 
 #endif

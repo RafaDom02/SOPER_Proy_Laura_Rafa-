@@ -12,15 +12,16 @@
 
 #include <mqueue.h>
 #include <semaphore.h>
-#include <miner.h>
-#define MQ_NAME "/mq_compr_miner"   //Nombre del segemento compartido
+#include "miner.h"
+
+#define MQ_NAME "/mq_compr_miner"   //Nombre de la cola de mensajes
 
 //Atributos para la cola de mensajes
 struct mq_attr attributes = {
     .mq_flags = 0,
     .mq_maxmsg = 10,
     .mq_curmsgs = 0,
-    .mq_msgsize = sizeof(SHM_info)
+    .mq_msgsize = sizeof(Block)
 };
 
 #endif

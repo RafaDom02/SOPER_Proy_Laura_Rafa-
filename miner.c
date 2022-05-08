@@ -15,8 +15,12 @@
 #include <string.h>
 #include <errno.h>
 #include <sys/mman.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <mqueue.h>
 #include "miner.h"
 #include "pow.h"
+#include "mintocom.h"
 
 /*****CONSTANTES DE ARGUMENTOS*****/
 #define ARGS 3
@@ -34,8 +38,7 @@ int pos;
 int n_th;
 pthread_t *threads = NULL;
 int fd_pipe;
-
-
+mqd_t mq;
 
 void *hardwork(void *param)
 {
@@ -60,28 +63,31 @@ void *hardwork(void *param)
 void returnAux()
 {
     int val;
-
     if (threads)
         free(threads);
-
+    mq_close(mq);
     if (shminfo)
     {
+        sem_wait(&shminfo->mutex);
         shminfo->pids_minando[pos] = 0;
         shminfo->wallets[pos] = NULL;
         shminfo->newblock.wallets[pos] = NULL;
         sem_post(&(shminfo->sem_miners));
         sem_getvalue(&(shminfo->sem_miners), &val);
-        if (val == MAX_MINERS - 1)
+        sem_post(&shminfo->mutex);
+        if (val == MAX_MINERS)
         {
+            sem_destroy(&(shminfo->mutex));
             sem_destroy(&(shminfo->sem_miners));
             sem_destroy(&(shminfo->sem_waiting));
         }
         munmap(shminfo, sizeof(shminfo));
-        if (val == MAX_MINERS - 1)
+        if (val == MAX_MINERS)
         {
             shm_unlink(SHM_NAME);
         }
     }
+    close(fd_pipe);
 }
 
 /**
@@ -106,11 +112,13 @@ void voting(int sig)
 {
     int i;
     int error;
+    printf("OLAAAAA %d\n", getpid());
     sem_wait(&(shminfo)->mutex);
     shminfo->minersvoting++;
     sem_post(&(shminfo)->mutex);
     for (i = 0; i < n_th; i++)
     {
+        printf("HolA\n");
         error = pthread_join(threads[i], NULL); // Esperamos a que todos los hilos terminen
         if (!error && error != ESRCH)
         {
@@ -120,10 +128,11 @@ void voting(int sig)
             exit(EXIT_FAILURE);
         }
     }
+    printf("OLAAAAAA %d\n", getpid());
     if (getpid() == shminfo->newblock.pidwinner) // Voto del procesador ganador
         return;
-    printf("bgowngoweguwbegwgwkgnwejobghqwghbwergbwerjghnwerhwjerh\n");
-    sem_wait(&(shminfo)->mutex);                                          // Como vamos a escribir, nos aseguramos que solo escriba un proceso
+    sem_wait(&(shminfo)->mutex); // Como vamos a escribir, nos aseguramos que solo escriba un proceso
+    printf("OLAAAAAAA %d\n", getpid());
     if (pow_hash(shminfo->newblock.solution) == shminfo->newblock.target) // Comprobamos que la solucion esta correctamente
     {
         shminfo->votes[pos] = 1;    // Guardamos el voto
@@ -202,6 +211,21 @@ void auxHandlerSI(struct sigaction act_int)
     }
 }
 
+void shm_next_round()
+{
+    int i;
+    shminfo->prevblock = shminfo->newblock;
+    shminfo->newblock.id = shminfo->prevblock.id + 1;
+    shminfo->newblock.pvotes = 0;
+    shminfo->newblock.tvotes = 0;
+    shminfo->newblock.target = shminfo->prevblock.solution;
+    shminfo->newblock.solution = -1;
+    for (i = 0; i < MAX_MINERS; i++)
+    {
+        shminfo->newblock.wallets[i] = shminfo->prevblock.wallets[i];
+    }
+}
+
 int miner(int rounds, int n_threads, int fd, int fd_shm)
 {
     int numperthr = POW_LIMIT / n_threads;
@@ -209,16 +233,17 @@ int miner(int rounds, int n_threads, int fd, int fd_shm)
     int j;
     int k;
     int error;
+    int sval;
+    int yavotado = 0;
     char minerToRegister[MAX_WORDS] = "";
     int mitadvotos = 0;
-    char cadenaAux[MAX_AUX];
+    char cadenaAux[MAX_AUX] = "";
     int param[n_threads][ARGS];
     struct sigaction act_usr1;
     struct sigaction act_usr2;
     struct sigaction act_int;
     sigset_t sigset;
     Wallet wallet;
-    printf("PRUEBA 1\n");
     // Comprobación de errores
     if (rounds <= 0 || n_threads <= 0)
         return EXIT_FAILURE;
@@ -232,7 +257,6 @@ int miner(int rounds, int n_threads, int fd, int fd_shm)
 
     auxHandlerSI(act_int);
     n_th = n_threads;
-    printf("PRUEBA 2\n");
     // Acceder a la memoria compartida
     shminfo = (SHM_info *)mmap(NULL, sizeof(shminfo), PROT_READ | PROT_WRITE, MAP_SHARED, fd_shm, 0);
     close(fd_shm);
@@ -242,7 +266,6 @@ int miner(int rounds, int n_threads, int fd, int fd_shm)
         free(threads);
         exit(EXIT_FAILURE);
     }
-    printf("PRUEBA 3\n");
     // Si el sistema esta lleno, salimos
     if (sem_trywait(&(shminfo->sem_miners)) == -1)
     {
@@ -250,39 +273,39 @@ int miner(int rounds, int n_threads, int fd, int fd_shm)
         free(threads);
         return EXIT_SUCCESS;
     }
-    printf("PRUEBA 4\n");
-    sem_wait(&shminfo->mutex); // Usamos el mutex para asegurar que solo escriba 1 proceso
-    for (i = 0; i < MAX_MINERS; i++)
-    { // Buscamos sitio donde meter el pid del proceso en
-        if (shminfo->pids_esperando[i] == 0)
-        { // la memoria compartida
-            shminfo->pids_esperando[i] = getpid();
-            break;
+    if (getpid() != shminfo->prevblock.pidwinner)
+    {
+        sem_wait(&shminfo->mutex); // Usamos el mutex para asegurar que solo escriba 1 proceso
+        for (i = 0; i < MAX_MINERS; i++)
+        { // Buscamos sitio donde meter el pid del proceso en
+            if (shminfo->pids_esperando[i] == 0)
+            { // la memoria compartida
+                shminfo->pids_esperando[i] = getpid();
+                break;
+            }
         }
+        sem_post(&shminfo->mutex);
     }
-    sem_post(&shminfo->mutex);
-
+    /////////////////////////////aqui///////////////////////////
+    // Creamos la cola de mensajes
+    if ((mq = mq_open(MQ_NAME, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR, &attributes)) == (mqd_t)-1)
+    {
+        perror("mq_open");
+        exit(EXIT_FAILURE);
+    }
     // Para usar a la hora de que queramos que los procesos esperen a SIGUSR1
     sigfillset(&sigset);
+    sigdelset(&sigset, SIGUSR1);
     auxHandlerSG1(act_usr1);
-    printf("PRUEBA 5\n");
     // Para que los procesos esperen la señal SIGUSR1
     if (getpid() != shminfo->prevblock.pidwinner)
     {
-        printf("PRUEBA 6\n");
-        if (sigsuspend(&sigset) == -1)
-        {
-            munmap(shminfo, sizeof(shminfo));
-            free(threads);
-            return EXIT_SUCCESS;
-        }
+        sigsuspend(&sigset);
     }
-    printf("PRUEBA 7\n");
     // Para inicializar las carteras de todos los procesos
     wallet.coins = 0;
     wallet.pid = getpid();
     sem_wait(&(shminfo)->mutex);
-    printf("PRUEBA 8\n");
     for (i = 0; i < MAX_MINERS; i++)
     {
         if (shminfo->newblock.wallets[i] == NULL)
@@ -294,14 +317,11 @@ int miner(int rounds, int n_threads, int fd, int fd_shm)
             break;
         }
     }
-    printf("PRUEBA 9\n");
-    sem_post(&(shminfo)->mutex);
-
+    sem_post(&(shminfo)->mutex); //
     auxHandlerSG2(act_usr2);
     // Bucle donde nos aseguramos si se ha encontrado el número y hacemos que haga todas las rondas
     for (j = 0; j < rounds; j++)
     {
-        printf("PRUEBA 10\n");
         if (shminfo->prevblock.pidwinner != getpid())
             sem_wait(&(shminfo->sem_waiting));
         else
@@ -317,99 +337,64 @@ int miner(int rounds, int n_threads, int fd, int fd_shm)
                 }
             }
         }
-        printf("PRUEBA 11\n");
         // Inicializamos por primera vez param asignando el target inicial
         for (i = 0; i < n_threads; i++)
             param[i][NUM] = shminfo->newblock.target;
-
         // Por cada hilo le asignamos el intervalo de numeros que tienen que buscar y lo
         // creamos llamando a la funcion hardwork() con los parametros correspondientes
         for (i = 0; i < n_threads; i++)
         {
-            printf("PRUEBA 12\n");
             param[i][MIN] = numperthr * i;
             if (i == n_threads - 1)
             {
-                param[i][MAX] = POW_LIMIT;
-                error = pthread_create(&threads[i], NULL, hardwork, param[i]);
-
-                if (error != 0)
-                {
-                    returnAux();
-                    fprintf(stderr, "pthread_create: %s\n", strerror(error));
-                    sem_post(&(shminfo->sem_miners));
-                    free(threads);
-                    return EXIT_FAILURE;
-                }
+                param[i][MAX] = POW_LIMIT; // dividimos los valores
             }
             else
             {
                 param[i][MAX] = numperthr * (i + 1) - 1;
-                error = pthread_create(&threads[i], NULL, hardwork, param[i]);
-                if (error != 0)
-                {
-                    returnAux();
-                    fprintf(stderr, "pthread_create: %s\n", strerror(error));
-                    sem_post(&(shminfo->sem_miners));
-                    free(threads);
-                    return EXIT_FAILURE;
-                }
             }
-            printf("PRUEBA 13\n");
+            error = pthread_create(&threads[i], NULL, hardwork, param[i]); // Creamos los hilos para que vayan buscando
+            if (error != 0)
+            {
+                returnAux();
+                fprintf(stderr, "pthread_create: %s\n", strerror(error));
+                free(threads);
+                return EXIT_FAILURE;
+            }
         }
         // esperamos el retorno de todos los hilos
         for (i = 0; i < n_threads; i++)
         {
-            error = pthread_join(threads[i], NULL);
+            error = pthread_join(threads[i], NULL); // esperamos a que terminen los hilos
             if (error != 0)
             {
                 returnAux();
                 fprintf(stderr, "pthread_join: %s\n", strerror(error));
-                sem_post(&(shminfo->sem_miners));
                 free(threads);
                 return EXIT_FAILURE;
             }
-            printf("PRUEBA 14\n");
         }
-        printf("PRUEBA 15\n");
         // si se encuentra y el numero de rondas ya ha terminado salimos de la función
         if (shminfo->newblock.pidwinner == getpid())
         {
-            printf("PRUEBA 16\n");
-            sem_wait(&(shminfo)->mutex);
-            printf("aeugbwuiegbwiuegb\n");
-            shminfo->newblock.pvotes++;
+            sem_wait(&(shminfo)->mutex); // descendemos el mutex
+            shminfo->newblock.pvotes++;  // añadimos los votos
             shminfo->newblock.tvotes++;
-            printf("----> minersvoting: %d\n", shminfo->minersvoting);
             shminfo->minersvoting++;
             i = 0;
-            for (i = 0; i < MAX_MINERS; i++)
-            {
-                if (shminfo->pids_minando[i] == getpid())
-                    continue;
-                if (shminfo->pids_minando[i] != 0)
-                {
-                    kill(shminfo->pids_minando[i], SIGUSR2);
-                }
-            }
-            printf("PRUEBA 17\n");
+            //
             for (i = 0; i < MAX_WAIT; i++)
             {
-                printf("----> minersvoting: %d\n", shminfo->minersvoting);
-                printf("----> tvotes: %d\n", shminfo->newblock.tvotes);
                 if (shminfo->minersvoting == shminfo->newblock.tvotes)
                     break;
                 sleep(1);
             }
-            
-            printf("PRUEBA 18\n");
+            // Si la mayoria de los votos es positivo, los mineros obtienen 1 moneda
             if (shminfo->newblock.tvotes / 2 < shminfo->newblock.pvotes)
             {
-                shminfo->wallets[pos]->coins++;
                 shminfo->newblock.wallets[pos]->coins++;
             }
-            printf("PRUEBA 19\n");
-
+            // Concatenamos todos los datos que vamos a pasar a registrador
             sprintf(cadenaAux, "Id:             %d\n", shminfo->newblock.id);
             strcat(minerToRegister, cadenaAux);
             sprintf(cadenaAux, "Winner:         %d\n", shminfo->newblock.pidwinner);
@@ -431,7 +416,7 @@ int miner(int rounds, int n_threads, int fd, int fd_shm)
             strcat(minerToRegister, cadenaAux);
             sprintf(cadenaAux, "Wallets:        ");
             strcat(minerToRegister, cadenaAux);
-            for (i = 0; i < shminfo->minersvoting; i++)
+            for (i = 0; i < MAX_MINERS; i++)
             {
                 if (shminfo->newblock.wallets[i] != NULL)
                 {
@@ -440,18 +425,24 @@ int miner(int rounds, int n_threads, int fd, int fd_shm)
                 }
             }
             shminfo->minersvoting = 0;
-
-            if (write(fd_pipe, minerToRegister, MAX_WORDS+1) == -1)
+            // Enviamos la informacion obtenida a Registrador
+            if (write(fd_pipe, minerToRegister, MAX_WORDS + 1) == -1)
             {
-                printf("test");
                 returnAux();
                 perror("write");
                 exit(EXIT_FAILURE);
             }
-            printf("PRUEBA 20\n");
-            sem_post(&(shminfo)->mutex);
-            sem_wait(&(shminfo)->mutex);
-            printf("PRUEBA 21\n");
+            // Al guardar el numero que buscamos y su posicion, lo enviamos a la cola de mensajes
+            if (mq_send(mq, (char *)&(shminfo->newblock), sizeof(Block), 1) == -1)
+            {
+                fprintf(stderr, "Error sending message\n");
+                return EXIT_FAILURE;
+            }
+            printf("%s\n", minerToRegister);
+            strcpy(minerToRegister, "");
+            sem_post(&(shminfo)->mutex); // Habilitamos de nuevo el mutex
+            shm_next_round();            // Preparamos a los procesos para la nueva ronda
+            sem_wait(&(shminfo)->mutex); // Usamos de nuevo el mutex
             for (i = 0; i < MAX_MINERS; i++)
             {
                 if (shminfo->pids_esperando[i] != 0)
@@ -460,24 +451,43 @@ int miner(int rounds, int n_threads, int fd, int fd_shm)
                     shminfo->pids_esperando[i] == 0;
                 }
             }
-            printf("PRUEBA 22\n");
-            sem_post(&(shminfo)->mutex);
-            sem_wait(&(shminfo)->mutex);
+            sem_post(&(shminfo)->mutex); // Activamos de nuevo el mutex
+            sleep(1);
+            sem_wait(&(shminfo)->mutex); // Utilizamos de nuevo el mutex
             for (i = 0; i < MAX_MINERS; i++)
             {
-                if (shminfo->pids_minando[i] == getpid())
+                if (shminfo->pids_minando[i] == getpid()) // Si el pid encuentra su pid no hace nada
                     continue;
-                if (shminfo->pids_minando[i] != 0)
+                if (shminfo->pids_minando[i] != 0) // El pid manda a los demas pids a votar
                 {
-                    kill(shminfo->pids_minando[i], SIGUSR1);
+                    kill(shminfo->pids_minando[i], SIGUSR2); // Enviamos la señal a los procesos
                 }
             }
-            sem_post(&(shminfo)->mutex);
-            printf("PRUEBA 23\n");
+            sem_post(&(shminfo)->mutex); // Habilitamos uan vez mas el mutex
+        }
+        else
+        {
+            while (TRUE)
+            {
+                if (yavotado == 1)
+                    break;
+            }
+            yavotado = 0;
         }
     }
-    printf("sale vien");
+    //Si era la ultima ronda y justo gana enviará la señal para comenzar la siguiente ronda al resto
+    if (shminfo->prevblock.pidwinner == getpid())
+    {
+        sem_wait(&(shminfo)->mutex);
+        for (i = 0; i < MAX_MINERS; i++)
+        {
+            if (shminfo->pids_minando[i] != 0)
+            {
+                kill(shminfo->pids_minando[i], SIGUSR1);
+            }
+        }
+        sem_post(&(shminfo)->mutex);
+    }
     returnAux();
-    sem_post(&(shminfo->sem_miners));
     return EXIT_SUCCESS;
 }

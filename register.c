@@ -28,30 +28,32 @@ int registrador(int fd, int rounds)
 
     for (i = 0; i < rounds; i++)
     {
-        nbytes = read(fd, minerToRegister, MAX_WORDS + 1);
-        if (nbytes == -1)
+        while (TRUE)
         {
-            printf("Error en el read.\n");
-            return EXIT_FAILURE;
+            nbytes = read(fd, minerToRegister, MAX_WORDS);
+            if (nbytes == -1)
+            {
+                printf("Error en el read.\n");
+                return EXIT_FAILURE;
+            }
+            if (strcmp(minerToRegister, "") != 0)
+                break;
         }
-        printf("me ha llegado lo de lectura y he leido: %ld\n", nbytes);
-        sprintf(nombreArchivo, "%d_bloque", (int)getppid());
+        sprintf(nombreArchivo, "%d_bloque.txt", (int)getppid());
 
-        f = open(nombreArchivo, O_WRONLY | O_TRUNC | O_CREAT | O_EXCL , S_IRUSR | S_IWUSR);
-        if (f == -1)
+        f = open(nombreArchivo, O_RDWR | O_CREAT | O_APPEND, S_IRUSR | S_IWUSR);
+        if (f < 0)
         {
             printf("Error Number %d  %s\n", errno, nombreArchivo);
             perror("Program");
             close(fd);
             exit(EXIT_FAILURE);
         }
-        ftruncate(f, MAX_WORDS);
-
         dprintf(f, "%s", minerToRegister);
+        dprintf(f, "\n\n");
 
         close(f);
     }
-
     close(fd);
     return EXIT_SUCCESS;
 }
