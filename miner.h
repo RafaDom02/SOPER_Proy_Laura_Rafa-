@@ -12,7 +12,7 @@
 #include <semaphore.h>
 
 #define MAX_MINERS 100
-#define MAX_WORDS 350
+#define MAX_WORDS 400
 #define MAX_AUX 32
 
 #define SHM_NAME "/shm_minero"
@@ -43,6 +43,7 @@ typedef struct {
     Wallet *wallets[MAX_MINERS];        //Carteras de los procesos
     int tvotes;                         //Todos los votos
     int pvotes;                         //Votos positivos
+    Boolean flag;                       //Bandera
 } Block;
 
 //
@@ -60,6 +61,14 @@ typedef struct
     sem_t mutex;
 }SHM_info;
 
-
+typedef struct
+{
+    SHM_info *shminfo;
+    int correcto;
+    int finalizando;
+    sem_t mutex;
+    sem_t sem_fill;
+    sem_t sem_empty;
+}SHM_mtc;
 
 #endif

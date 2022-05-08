@@ -12,7 +12,7 @@
 
  #include "miner.h"
 
- #define SHM_NAME "/shm_comprobador_monitor"
+ #define SHM_MTC_NAME "/shm_comprobador_monitor"
  #define MQ_NAME "/mq_comprobador_monitor"
 
  int comprobador(int fd);

@@ -35,12 +35,7 @@ int n_th;
 pthread_t *threads = NULL;
 int fd_pipe;
 
-/**
- * @brief Se ejecuta cuando le llega la seña SIGUSR1
- *
- * @param sig Valor de la señal SIGUSR1 (no es usada)
- */
-void handler_usr1(int sig) {}
+
 
 void *hardwork(void *param)
 {
@@ -88,6 +83,13 @@ void returnAux()
         }
     }
 }
+
+/**
+ * @brief Se ejecuta cuando le llega la seña SIGUSR1
+ *
+ * @param sig Valor de la señal SIGUSR1 (no es usada)
+ */
+void handler_usr1(int sig) {}
 
 /**
  * @brief Cuando llega la señal SIGINT
@@ -185,7 +187,7 @@ void auxHandlerSG2(struct sigaction act_usr2)
 /**
  * @brief Aplicacion de las señales al proceso
  *
- * @param act_usr2 puntero a estructura que define el comportamiento cuando se reciba la señal SIGINT
+ * @param act_int puntero a estructura que define el comportamiento cuando se reciba la señal SIGINT
  */
 void auxHandlerSI(struct sigaction act_int)
 {
@@ -208,6 +210,7 @@ int miner(int rounds, int n_threads, int fd, int fd_shm)
     int k;
     int error;
     char minerToRegister[MAX_WORDS] = "";
+    int mitadvotos = 0;
     char cadenaAux[MAX_AUX];
     int param[n_threads][ARGS];
     struct sigaction act_usr1;
@@ -398,7 +401,7 @@ int miner(int rounds, int n_threads, int fd, int fd_shm)
                     break;
                 sleep(1);
             }
-            shminfo->minersvoting = 0;
+            
             printf("PRUEBA 18\n");
             if (shminfo->newblock.tvotes / 2 < shminfo->newblock.pvotes)
             {
@@ -411,30 +414,32 @@ int miner(int rounds, int n_threads, int fd, int fd_shm)
             strcat(minerToRegister, cadenaAux);
             sprintf(cadenaAux, "Winner:         %d\n", shminfo->newblock.pidwinner);
             strcat(minerToRegister, cadenaAux);
-            sprintf(cadenaAux, "Target:         %d\n", shminfo->newblock.target);
+            sprintf(cadenaAux, "Target:         %ld\n", shminfo->newblock.target);
             strcat(minerToRegister, cadenaAux);
-            if ((shminfo->newblock.tvotes / 2) < shminfo->newblock.pvotes)
+            mitadvotos = shminfo->newblock.tvotes / 2;
+            if (mitadvotos < shminfo->newblock.pvotes)
             {
-                sprintf(cadenaAux, "Solution:       %d (validated) \n", shminfo->newblock.target);
+                sprintf(cadenaAux, "Solution:       %ld (validated) \n", shminfo->newblock.solution);
                 strcat(minerToRegister, cadenaAux);
             }
             else
             {
-                sprintf(cadenaAux, "Solution:       %d (rejected)\n", shminfo->newblock.target);
+                sprintf(cadenaAux, "Solution:       %ld (rejected)\n", shminfo->newblock.solution);
                 strcat(minerToRegister, cadenaAux);
             }
             sprintf(cadenaAux, "Votes:          %d/%d\n", shminfo->newblock.pvotes, shminfo->newblock.tvotes);
             strcat(minerToRegister, cadenaAux);
             sprintf(cadenaAux, "Wallets:        ");
             strcat(minerToRegister, cadenaAux);
-            for (i = 0; i < MAX_MINERS; i++)
+            for (i = 0; i < shminfo->minersvoting; i++)
             {
-                if (shminfo->newblock.wallets[j] != NULL)
+                if (shminfo->newblock.wallets[i] != NULL)
                 {
-                    sprintf(cadenaAux, "%d:%d ", shminfo->newblock.wallets[j]->pid, shminfo->newblock.wallets[j]->coins);
+                    sprintf(cadenaAux, "%d:%d ", shminfo->newblock.wallets[i]->pid, shminfo->newblock.wallets[i]->coins);
                     strcat(minerToRegister, cadenaAux);
                 }
             }
+            shminfo->minersvoting = 0;
 
             if (write(fd_pipe, minerToRegister, MAX_WORDS+1) == -1)
             {
